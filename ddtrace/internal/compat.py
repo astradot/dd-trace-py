@@ -6,6 +6,7 @@ import textwrap
 import threading
 from typing import Any
 from typing import AnyStr
+from typing import Optional
 from typing import Text
 from typing import Union
 
@@ -22,6 +23,7 @@ __all__ = [
     "urlencode",
     "parse",
     "reraise",
+    "maybe_stringify",
 ]
 
 PYTHON_VERSION_INFO = sys.version_info
@@ -179,7 +181,7 @@ else:
 # DEV: There is `six.u()` which does something similar, but doesn't have the guard around `hasattr(s, 'decode')`
 def to_unicode(s):
     # type: (AnyStr) -> Text
-    """ Return a unicode string for the given bytes or string instance. """
+    """Return a unicode string for the given bytes or string instance."""
     # No reason to decode if we already have the unicode compatible object we expect
     # DEV: `six.text_type` will be a `str` for python 3 and `unicode` for python 2
     # DEV: Double decoding a `unicode` can cause a `UnicodeEncodeError`
@@ -226,3 +228,26 @@ except ImportError:
     CONTEXTVARS_IS_AVAILABLE = False
 else:
     CONTEXTVARS_IS_AVAILABLE = True
+
+
+try:
+    from pep562 import Pep562  # noqa
+
+    def ensure_pep562(module_name):
+        # type: (str) -> None
+        if sys.version_info < (3, 7):
+            Pep562(module_name)
+
+
+except ImportError:
+
+    def ensure_pep562(module_name):
+        # type: (str) -> None
+        pass
+
+
+def maybe_stringify(obj):
+    # type: (Any) -> Optional[str]
+    if obj is not None:
+        return stringify(obj)
+    return None

@@ -1,7 +1,7 @@
 # 3p
 import psycopg2
+from psycopg2.sql import Composable
 
-# project
 from ddtrace import Pin
 from ddtrace import config
 from ddtrace.contrib import dbapi
@@ -10,23 +10,23 @@ from ddtrace.ext import net
 from ddtrace.ext import sql
 from ddtrace.vendor import wrapt
 
+from ...utils.formats import asbool
+from ...utils.formats import get_env
+from ...utils.version import parse_version
 
-config._add("psycopg", dict(_default_service="postgres"))
+
+config._add(
+    "psycopg",
+    dict(
+        _default_service="postgres",
+        trace_fetch_methods=asbool(get_env("psycopg", "trace_fetch_methods", default=False)),
+    ),
+)
 
 # Original connect method
 _connect = psycopg2.connect
 
-# psycopg2 versions can end in `-betaN` where `N` is a number
-# in such cases we simply skip version specific patching
-PSYCOPG2_VERSION = (0, 0, 0)
-
-try:
-    PSYCOPG2_VERSION = tuple(map(int, psycopg2.__version__.split()[0].split(".")))
-except Exception:
-    pass
-
-if PSYCOPG2_VERSION >= (2, 7):
-    from psycopg2.sql import Composable
+PSYCOPG2_VERSION = parse_version(psycopg2.__version__)
 
 
 def patch():
@@ -45,38 +45,37 @@ def unpatch():
     if getattr(psycopg2, "_datadog_patch", False):
         setattr(psycopg2, "_datadog_patch", False)
         psycopg2.connect = _connect
+        _unpatch_extensions(_psycopg2_extensions)
 
 
 class Psycopg2TracedCursor(dbapi.TracedCursor):
-    """ TracedCursor for psycopg2 """
+    """TracedCursor for psycopg2"""
 
     def _trace_method(self, method, name, resource, extra_tags, *args, **kwargs):
         # treat psycopg2.sql.Composable resource objects as strings
-        if PSYCOPG2_VERSION >= (2, 7) and isinstance(resource, Composable):
+        if isinstance(resource, Composable):
             resource = resource.as_string(self.__wrapped__)
 
         return super(Psycopg2TracedCursor, self)._trace_method(method, name, resource, extra_tags, *args, **kwargs)
 
 
 class Psycopg2FetchTracedCursor(Psycopg2TracedCursor, dbapi.FetchTracedCursor):
-    """ FetchTracedCursor for psycopg2 """
+    """FetchTracedCursor for psycopg2"""
 
 
 class Psycopg2TracedConnection(dbapi.TracedConnection):
-    """ TracedConnection wraps a Connection with tracing code. """
+    """TracedConnection wraps a Connection with tracing code."""
 
     def __init__(self, conn, pin=None, cursor_cls=None):
         if not cursor_cls:
             # Do not trace `fetch*` methods by default
-            cursor_cls = Psycopg2TracedCursor
-            if config.dbapi2.trace_fetch_methods:
-                cursor_cls = Psycopg2FetchTracedCursor
+            cursor_cls = Psycopg2FetchTracedCursor if config.psycopg.trace_fetch_methods else Psycopg2TracedCursor
 
         super(Psycopg2TracedConnection, self).__init__(conn, pin, config.psycopg, cursor_cls=cursor_cls)
 
 
 def patch_conn(conn, traced_conn_cls=Psycopg2TracedConnection):
-    """ Wrap will patch the instance so that its queries are traced."""
+    """Wrap will patch the instance so that its queries are traced."""
     # ensure we've patched extensions (this is idempotent) in
     # case we're only tracing some connections.
     _patch_extensions(_psycopg2_extensions)

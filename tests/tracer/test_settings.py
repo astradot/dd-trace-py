@@ -1,7 +1,10 @@
+import pytest
+
 from ddtrace.settings import Config
 from ddtrace.settings import HttpConfig
 from ddtrace.settings import IntegrationConfig
 from tests.utils import BaseTestCase
+from tests.utils import override_env
 
 
 class TestConfig(BaseTestCase):
@@ -171,7 +174,8 @@ class TestIntegrationConfig(BaseTestCase):
 
         self.integration_config.http.trace_headers("integration_header")
         assert self.integration_config.header_is_traced("integration_header")
-        assert not self.integration_config.header_is_traced("global_header")
+
+        assert not self.integration_config.http.header_is_traced("global_header")
         assert not self.config.header_is_traced("integration_header")
 
     def test_environment_analytics_enabled(self):
@@ -218,7 +222,7 @@ class TestIntegrationConfig(BaseTestCase):
             self.assertEqual(config.foo.analytics_sample_rate, 0.5)
 
     def test_analytics_enabled_attribute(self):
-        """" Confirm environment variable and kwargs are handled properly """
+        """Confirm environment variable and kwargs are handled properly"""
         ic = IntegrationConfig(self.config, "foo", analytics_enabled=True)
         self.assertTrue(ic.analytics_enabled)
 
@@ -234,7 +238,7 @@ class TestIntegrationConfig(BaseTestCase):
             self.assertFalse(ic.analytics_enabled)
 
     def test_get_analytics_sample_rate(self):
-        """" Check method for accessing sample rate based on configuration """
+        """Check method for accessing sample rate based on configuration"""
         ic = IntegrationConfig(self.config, "foo", analytics_enabled=True, analytics_sample_rate=0.5)
         self.assertEqual(ic.get_analytics_sample_rate(), 0.5)
 
@@ -287,3 +291,42 @@ class TestIntegrationConfig(BaseTestCase):
     def test_service_name_env_var_legacy(self):
         ic = IntegrationConfig(self.config, "foo")
         assert ic.service == "foo-svc"
+
+
+@pytest.mark.parametrize(
+    "global_headers,int_headers,expected",
+    (
+        (None, None, (False, False, False)),
+        ([], None, (False, False, False)),
+        (["Header"], None, (True, False, True)),
+        (None, ["Header"], (False, True, True)),
+        (None, [], (False, False, False)),
+        (["Header"], ["Header"], (True, True, True)),
+        ([], [], (False, False, False)),
+    ),
+)
+def test_config_is_header_tracing_configured(global_headers, int_headers, expected):
+    config = Config()
+    integration_config = config.myint
+
+    if global_headers is not None:
+        config.trace_headers(global_headers)
+    if int_headers is not None:
+        integration_config.http.trace_headers(int_headers)
+
+    assert (
+        config.http.is_header_tracing_configured,
+        integration_config.http.is_header_tracing_configured,
+        integration_config.is_header_tracing_configured,
+    ) == expected
+
+
+def test_environment_header_tags():
+    with override_env(dict(DD_TRACE_HEADER_TAGS="Host:http.host,User-agent:http.user_agent")):
+        config = Config()
+
+    assert config.http.is_header_tracing_configured
+    assert config._header_tag_name("Host") == "http.host"
+    assert config._header_tag_name("User-agent") == "http.user_agent"
+    # Case insensitive
+    assert config._header_tag_name("User-Agent") == "http.user_agent"

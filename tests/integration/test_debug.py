@@ -102,7 +102,9 @@ def test_standard_tags():
     assert f.get("analytics_enabled") is False
     assert f.get("log_injection_enabled") is False
     assert f.get("health_metrics_enabled") is False
+    assert f.get("runtime_metrics_enabled") is False
     assert f.get("priority_sampling_enabled") is True
+    assert f.get("sampler_rules") == []
     assert f.get("global_tags") == ""
     assert f.get("tracer_tags") == ""
 
@@ -264,6 +266,53 @@ class TestGlobalConfig(SubprocessTestCase):
         assert tracer.log.log.mock_calls == []
 
 
+def test_runtime_metrics_enabled_via_manual_start(ddtrace_run_python_code_in_subprocess):
+    _, _, status, _ = ddtrace_run_python_code_in_subprocess(
+        """
+import ddtrace
+from ddtrace.internal import debug
+from ddtrace.runtime import RuntimeMetrics
+
+f = debug.collect(ddtrace.tracer)
+assert f.get("runtime_metrics_enabled") is False
+
+RuntimeMetrics.enable()
+f = debug.collect(ddtrace.tracer)
+assert f.get("runtime_metrics_enabled") is True
+
+RuntimeMetrics.disable()
+f = debug.collect(ddtrace.tracer)
+assert f.get("runtime_metrics_enabled") is False
+""",
+    )
+    assert status == 0
+
+
+def test_runtime_metrics_enabled_via_env_var_start(monkeypatch, ddtrace_run_python_code_in_subprocess):
+    # default, no env variable set
+    _, _, status, _ = ddtrace_run_python_code_in_subprocess(
+        """
+import ddtrace
+from ddtrace.internal import debug
+f = debug.collect(ddtrace.tracer)
+assert f.get("runtime_metrics_enabled") is False
+""",
+    )
+    assert status == 0
+
+    # Explicitly set env variable
+    monkeypatch.setenv("DD_RUNTIME_METRICS_ENABLED", "true")
+    _, _, status, _ = ddtrace_run_python_code_in_subprocess(
+        """
+import ddtrace
+from ddtrace.internal import debug
+f = debug.collect(ddtrace.tracer)
+assert f.get("runtime_metrics_enabled") is True
+""",
+    )
+    assert status == 0
+
+
 def test_to_json():
     info = debug.collect(ddtrace.tracer)
     json.dumps(info)
@@ -307,10 +356,27 @@ def test_different_samplers():
     assert info.get("sampler_type") == "RateSampler"
 
 
+def test_startup_logs_sampling_rules():
+    tracer = ddtrace.Tracer()
+    sampler = ddtrace.sampler.DatadogSampler(rules=[ddtrace.sampler.SamplingRule(sample_rate=1.0)])
+    tracer.configure(sampler=sampler)
+    f = debug.collect(tracer)
+
+    assert f.get("sampler_rules") == ["SamplingRule(sample_rate=1.0, service='NO_RULE', name='NO_RULE')"]
+
+    sampler = ddtrace.sampler.DatadogSampler(
+        rules=[ddtrace.sampler.SamplingRule(sample_rate=1.0, service="xyz", name="abc")]
+    )
+    tracer.configure(sampler=sampler)
+    f = debug.collect(tracer)
+
+    assert f.get("sampler_rules") == ["SamplingRule(sample_rate=1.0, service='xyz', name='abc')"]
+
+
 def test_error_output_ddtracerun_debug_mode():
     p = subprocess.Popen(
         ["ddtrace-run", "python", "tests/integration/hello.py"],
-        env=dict(DD_TRACE_AGENT_URL="http://localhost:8126", DATADOG_TRACE_DEBUG="true", **os.environ),
+        env=dict(DD_TRACE_AGENT_URL="http://localhost:8126", DD_TRACE_DEBUG="true", **os.environ),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -322,7 +388,7 @@ def test_error_output_ddtracerun_debug_mode():
     # No connection to agent, debug mode enabled
     p = subprocess.Popen(
         ["ddtrace-run", "python", "tests/integration/hello.py"],
-        env=dict(DD_TRACE_AGENT_URL="http://localhost:4321", DATADOG_TRACE_DEBUG="true", **os.environ),
+        env=dict(DD_TRACE_AGENT_URL="http://localhost:4321", DD_TRACE_DEBUG="true", **os.environ),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -337,7 +403,7 @@ def test_error_output_ddtracerun():
     # Connection to agent, debug mode disabled
     p = subprocess.Popen(
         ["ddtrace-run", "python", "tests/integration/hello.py"],
-        env=dict(DD_TRACE_AGENT_URL="http://localhost:8126", DATADOG_TRACE_DEBUG="false", **os.environ),
+        env=dict(DD_TRACE_AGENT_URL="http://localhost:8126", DD_TRACE_DEBUG="false", **os.environ),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -350,7 +416,7 @@ def test_error_output_ddtracerun():
     # No connection to agent, debug mode disabled
     p = subprocess.Popen(
         ["ddtrace-run", "python", "tests/integration/hello.py"],
-        env=dict(DD_TRACE_AGENT_URL="http://localhost:4321", DATADOG_TRACE_DEBUG="false", **os.environ),
+        env=dict(DD_TRACE_AGENT_URL="http://localhost:4321", DD_TRACE_DEBUG="false", **os.environ),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -359,3 +425,50 @@ def test_error_output_ddtracerun():
     stderr = p.stderr.read()
     assert b"DATADOG TRACER CONFIGURATION" not in stderr
     assert b"DATADOG TRACER DIAGNOSTIC - Agent not reachable" not in stderr
+
+
+def test_debug_span_log():
+    p = subprocess.Popen(
+        ["python", "-c", 'import os; print(os.environ);import ddtrace; ddtrace.tracer.trace("span").finish()'],
+        env=dict(DD_TRACE_AGENT_URL="http://localhost:8126", DD_TRACE_DEBUG="true", **os.environ),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    p.wait()
+    stderr = p.stderr.read()
+    assert b"finishing span name='span'" in stderr
+
+
+def test_partial_flush_log(run_python_code_in_subprocess):
+    tracer = ddtrace.Tracer()
+
+    tracer.configure(
+        partial_flush_enabled=True,
+        partial_flush_min_spans=300,
+    )
+
+    f = debug.collect(tracer)
+
+    partial_flush_enabled = f.get("partial_flush_enabled")
+    partial_flush_min_spans = f.get("partial_flush_min_spans")
+
+    assert partial_flush_enabled is True
+    assert partial_flush_min_spans == 300
+
+    partial_flush_min_spans = "2"
+    env = os.environ.copy()
+    env["DD_TRACE_PARTIAL_FLUSH_ENABLED"] = "true"
+    env["DD_TRACE_PARTIAL_FLUSH_MIN_SPANS"] = partial_flush_min_spans
+
+    out, err, status, pid = run_python_code_in_subprocess(
+        """
+from ddtrace import tracer
+
+print(tracer._partial_flush_enabled)
+assert tracer._partial_flush_enabled == True
+assert tracer._partial_flush_min_spans == 2
+""",
+        env=env,
+    )
+
+    assert status == 0, (out, err)

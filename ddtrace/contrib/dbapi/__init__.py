@@ -11,9 +11,8 @@ from ...ext import SpanTypes
 from ...ext import sql
 from ...internal.logger import get_logger
 from ...pin import Pin
-from ...utils.attrdict import AttrDict
-from ...utils.formats import asbool
-from ...utils.formats import get_env
+from ...utils import ArgumentError
+from ...utils import get_argument_value
 from ...vendor import wrapt
 from ..trace_utils import ext_service
 from ..trace_utils import iswrapped
@@ -21,17 +20,18 @@ from ..trace_utils import iswrapped
 
 log = get_logger(__name__)
 
+
 config._add(
     "dbapi2",
     dict(
         _default_service="db",
-        trace_fetch_methods=asbool(get_env("dbapi2", "trace_fetch_methods", default=False)),
+        trace_fetch_methods=None,  # Part of the API. Should be implemented at the integration level.
     ),
 )
 
 
 class TracedCursor(wrapt.ObjectProxy):
-    """ TracedCursor wraps a psql cursor and traces its queries. """
+    """TracedCursor wraps a psql cursor and traces its queries."""
 
     def __init__(self, cursor, pin, cfg):
         super(TracedCursor, self).__init__(cursor)
@@ -39,7 +39,7 @@ class TracedCursor(wrapt.ObjectProxy):
         name = pin.app or "sql"
         self._self_datadog_name = "{}.query".format(name)
         self._self_last_execute_operation = None
-        self._self_config = _override_dbapi2_config(cfg)
+        self._self_config = cfg or config.dbapi2
 
     def _trace_method(self, method, name, resource, extra_tags, *args, **kwargs):
         """
@@ -69,7 +69,7 @@ class TracedCursor(wrapt.ObjectProxy):
 
             # set analytics sample rate if enabled but only for non-FetchTracedCursor
             if not isinstance(self, FetchTracedCursor):
-                s.set_tag(ANALYTICS_SAMPLE_RATE_KEY, config.dbapi2.get_analytics_sample_rate())
+                s.set_tag(ANALYTICS_SAMPLE_RATE_KEY, self._self_config.get_analytics_sample_rate())
 
             try:
                 return method(*args, **kwargs)
@@ -85,7 +85,7 @@ class TracedCursor(wrapt.ObjectProxy):
                     s.set_tag(sql.ROWS, row_count)
 
     def executemany(self, query, *args, **kwargs):
-        """ Wraps the cursor.executemany method"""
+        """Wraps the cursor.executemany method"""
         self._self_last_execute_operation = query
         # Always return the result as-is
         # DEV: Some libraries return `None`, others `int`, and others the cursor objects
@@ -103,7 +103,7 @@ class TracedCursor(wrapt.ObjectProxy):
         )
 
     def execute(self, query, *args, **kwargs):
-        """ Wraps the cursor.execute method"""
+        """Wraps the cursor.execute method"""
         self._self_last_execute_operation = query
 
         # Always return the result as-is
@@ -112,7 +112,7 @@ class TracedCursor(wrapt.ObjectProxy):
         return self._trace_method(self.__wrapped__.execute, self._self_datadog_name, query, {}, query, *args, **kwargs)
 
     def callproc(self, proc, *args):
-        """ Wraps the cursor.callproc method"""
+        """Wraps the cursor.callproc method"""
         self._self_last_execute_operation = proc
         return self._trace_method(self.__wrapped__.callproc, self._self_datadog_name, proc, {}, proc, *args)
 
@@ -134,30 +134,29 @@ class FetchTracedCursor(TracedCursor):
     """
 
     def fetchone(self, *args, **kwargs):
-        """ Wraps the cursor.fetchone method"""
+        """Wraps the cursor.fetchone method"""
         span_name = "{}.{}".format(self._self_datadog_name, "fetchone")
         return self._trace_method(
             self.__wrapped__.fetchone, span_name, self._self_last_execute_operation, {}, *args, **kwargs
         )
 
     def fetchall(self, *args, **kwargs):
-        """ Wraps the cursor.fetchall method"""
+        """Wraps the cursor.fetchall method"""
         span_name = "{}.{}".format(self._self_datadog_name, "fetchall")
         return self._trace_method(
             self.__wrapped__.fetchall, span_name, self._self_last_execute_operation, {}, *args, **kwargs
         )
 
     def fetchmany(self, *args, **kwargs):
-        """ Wraps the cursor.fetchmany method"""
+        """Wraps the cursor.fetchmany method"""
         span_name = "{}.{}".format(self._self_datadog_name, "fetchmany")
         # We want to trace the information about how many rows were requested. Note that this number may be larger
         # the number of rows actually returned if less then requested are available from the query.
         size_tag_key = "db.fetch.size"
-        if "size" in kwargs:
-            extra_tags = {size_tag_key: kwargs.get("size")}
-        elif len(args) == 1 and isinstance(args[0], int):
-            extra_tags = {size_tag_key: args[0]}
-        else:
+
+        try:
+            extra_tags = {size_tag_key: get_argument_value(args, kwargs, 0, "size")}
+        except ArgumentError:
             default_array_size = getattr(self.__wrapped__, "arraysize", None)
             extra_tags = {size_tag_key: default_array_size} if default_array_size else {}
 
@@ -166,53 +165,16 @@ class FetchTracedCursor(TracedCursor):
         )
 
 
-# TODO: Remove once config.dbapi2 has been removed
-class _OverrideAttrDict(wrapt.ObjectProxy):
-    __slots__ = ("override", "base")
-    sentinel = object()
-
-    def __init__(self, override, base):
-        self.override = override or AttrDict()
-        self.base = base or AttrDict()
-        super(_OverrideAttrDict, self).__init__(self.override)
-
-    def __getattr__(self, name):
-        value = self.override.get(name, self.sentinel)
-        return getattr(self.base, name) if value == self.sentinel else value
-
-    def __getitem__(self, name):
-        value = self.override.get(name, self.sentinel)
-        return self.base.__getitem__(name) if value == self.sentinel else value
-
-    def __contains__(self, name):
-        return (name in self.override and self.override[name] is not None) or (
-            name in self.base and self.base[name] is not None
-        )
-
-
-def _override_dbapi2_config(new_cfg):
-    # Need to backwards support the dbapi2 config entry
-    # but give precedence to the given config.
-    if new_cfg is None:
-        return config.dbapi2
-
-    # Avoid wrapping again
-    if isinstance(new_cfg, _OverrideAttrDict):
-        return new_cfg
-
-    return _OverrideAttrDict(new_cfg, config.dbapi2)
-
-
 class TracedConnection(wrapt.ObjectProxy):
-    """ TracedConnection wraps a Connection with tracing code. """
+    """TracedConnection wraps a Connection with tracing code."""
 
     def __init__(self, conn, pin=None, cfg=None, cursor_cls=None):
+        if not cfg:
+            cfg = config.dbapi2
         # Set default cursor class if one was not provided
         if not cursor_cls:
             # Do not trace `fetch*` methods by default
-            cursor_cls = TracedCursor
-            if config.dbapi2.trace_fetch_methods:
-                cursor_cls = FetchTracedCursor
+            cursor_cls = FetchTracedCursor if cfg.trace_fetch_methods else TracedCursor
 
         super(TracedConnection, self).__init__(conn)
         name = _get_vendor(conn)
@@ -222,7 +184,7 @@ class TracedConnection(wrapt.ObjectProxy):
         # wrapt requires prefix of `_self` for attributes that are only in the
         # proxy (since some of our source objects will use `__slots__`)
         self._self_cursor_cls = cursor_cls
-        self._self_config = _override_dbapi2_config(cfg)
+        self._self_config = cfg
 
     def __enter__(self):
         """Context management is not defined by the dbapi spec.
@@ -300,7 +262,7 @@ def _get_vendor(conn):
     try:
         name = _get_module_name(conn)
     except Exception:
-        log.debug("couldnt parse module name", exc_info=True)
+        log.debug("couldn't parse module name", exc_info=True)
         name = "sql"
     return sql.normalize_vendor(name)
 

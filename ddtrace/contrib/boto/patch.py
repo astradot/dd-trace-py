@@ -3,15 +3,16 @@ import inspect
 import boto.connection
 
 from ddtrace import config
+from ddtrace.constants import ANALYTICS_SAMPLE_RATE_KEY
+from ddtrace.constants import SPAN_MEASURED_KEY
+from ddtrace.ext import SpanTypes
+from ddtrace.ext import aws
+from ddtrace.ext import http
+from ddtrace.pin import Pin
+from ddtrace.utils.wrappers import unwrap
 from ddtrace.vendor import wrapt
 
-from ...constants import ANALYTICS_SAMPLE_RATE_KEY
-from ...constants import SPAN_MEASURED_KEY
-from ...ext import SpanTypes
-from ...ext import aws
-from ...ext import http
-from ...pin import Pin
-from ...utils.wrappers import unwrap
+from ...utils import get_argument_value
 
 
 # Original boto client class
@@ -38,7 +39,7 @@ def patch():
 
     # AWSQueryConnection and AWSAuthConnection are two different classes called by
     # different services for connection.
-    # For exemple EC2 uses AWSQueryConnection and S3 uses AWSAuthConnection
+    # For example EC2 uses AWSQueryConnection and S3 uses AWSAuthConnection
     wrapt.wrap_function_wrapper("boto.connection", "AWSQueryConnection.make_request", patched_query_request)
     wrapt.wrap_function_wrapper("boto.connection", "AWSAuthConnection.make_request", patched_auth_request)
     Pin(service="aws", app="aws").onto(boto.connection.AWSQueryConnection)
@@ -70,7 +71,7 @@ def patched_query_request(original_func, instance, args, kwargs):
 
         operation_name = None
         if args:
-            operation_name = args[0]
+            operation_name = get_argument_value(args, kwargs, 0, "action")
             span.resource = "%s.%s" % (endpoint_name, operation_name.lower())
         else:
             span.resource = endpoint_name
@@ -134,7 +135,7 @@ def patched_auth_request(original_func, instance, args, kwargs):
     ) as span:
         span.set_tag(SPAN_MEASURED_KEY)
         if args:
-            http_method = args[0]
+            http_method = get_argument_value(args, kwargs, 0, "method")
             span.resource = "%s.%s" % (endpoint_name, http_method.lower())
         else:
             span.resource = endpoint_name

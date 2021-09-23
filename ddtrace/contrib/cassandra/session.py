@@ -15,9 +15,11 @@ from ...ext import SpanTypes
 from ...ext import cassandra as cassx
 from ...ext import errors
 from ...ext import net
+from ...internal.compat import maybe_stringify
 from ...internal.compat import stringify
 from ...internal.logger import get_logger
 from ...pin import Pin
+from ...utils import get_argument_value
 from ...utils.deprecation import deprecated
 from ...utils.formats import deep_getattr
 from ...vendor import wrapt
@@ -35,7 +37,7 @@ _connect = cassandra.cluster.Cluster.connect
 
 
 def patch():
-    """ patch will add tracing to the cassandra library. """
+    """patch will add tracing to the cassandra library."""
     setattr(cassandra.cluster.Cluster, "connect", wrapt.FunctionWrapper(_connect, traced_connect))
     Pin(service=SERVICE, app=SERVICE).onto(cassandra.cluster.Cluster)
 
@@ -60,14 +62,14 @@ def _close_span_on_success(result, future):
     try:
         span.set_tags(_extract_result_metas(cassandra.cluster.ResultSet(future, result)))
     except Exception:
-        log.debug("an exception occured while setting tags", exc_info=True)
+        log.debug("an exception occurred while setting tags", exc_info=True)
     finally:
         span.finish()
         delattr(future, CURRENT_SPAN)
 
 
 def traced_set_final_result(func, instance, args, kwargs):
-    result = args[0]
+    result = get_argument_value(args, kwargs, 0, "response")
     _close_span_on_success(result, instance)
     return func(*args, **kwargs)
 
@@ -91,7 +93,7 @@ def _close_span_on_error(exc, future):
 
 
 def traced_set_final_exception(func, instance, args, kwargs):
-    exc = args[0]
+    exc = get_argument_value(args, kwargs, 0, "response")
     _close_span_on_error(exc, instance)
     return func(*args, **kwargs)
 
@@ -133,7 +135,7 @@ def traced_execute_async(func, instance, args, kwargs):
     if not pin or not pin.enabled():
         return func(*args, **kwargs)
 
-    query = kwargs.get("query") or args[0]
+    query = get_argument_value(args, kwargs, 0, "query")
 
     span = _start_span_and_set_tags(pin, query, instance, cluster)
 
@@ -210,9 +212,12 @@ def _extract_result_metas(result):
 
     if future:
         # get the host
-        host = getattr(future, "coordinator_host", None)
+        host = maybe_stringify(getattr(future, "coordinator_host", None))
         if host:
+            host, _, port = host.partition(":")
             metas[net.TARGET_HOST] = host
+            if port:
+                metas[net.TARGET_PORT] = int(port)
         elif hasattr(future, "_current_host"):
             address = deep_getattr(future, "_current_host.address")
             if address:

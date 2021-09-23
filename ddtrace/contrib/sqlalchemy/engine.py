@@ -130,7 +130,7 @@ class EngineTracer(object):
 
 
 def _set_tags_from_url(span, url):
-    """ set connection tags from the url. return true if successful. """
+    """set connection tags from the url. return true if successful."""
     if url.host:
         span.set_tag(netx.TARGET_HOST, url.host)
     if url.port:
@@ -142,12 +142,12 @@ def _set_tags_from_url(span, url):
 
 
 def _set_tags_from_cursor(span, vendor, cursor):
-    """ attempt to set db connection tags by introspecting the cursor. """
+    """attempt to set db connection tags by introspecting the cursor."""
     if "postgres" == vendor:
-        if hasattr(cursor, "connection") and hasattr(cursor.connection, "dsn"):
+        if hasattr(cursor, "connection"):
             dsn = getattr(cursor.connection, "dsn", None)
             if dsn:
                 d = sqlx.parse_pg_dsn(dsn)
-                span.set_tag(sqlx.DB, d.get("dbname"))
-                span.set_tag(netx.TARGET_HOST, d.get("host"))
-                span.set_tag(netx.TARGET_PORT, d.get("port"))
+                span._set_str_tag(sqlx.DB, d.get("dbname"))
+                span._set_str_tag(netx.TARGET_HOST, d.get("host"))
+                span.set_metric(netx.TARGET_PORT, int(d.get("port")))

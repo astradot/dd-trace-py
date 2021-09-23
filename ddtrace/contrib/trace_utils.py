@@ -4,10 +4,13 @@ This module contains utility functions for writing ddtrace integrations.
 from collections import deque
 import re
 from typing import Any
+from typing import Callable
 from typing import Dict
+from typing import Generator
+from typing import Iterator
 from typing import Optional
-from typing import Set
 from typing import TYPE_CHECKING
+from typing import Tuple
 
 from ddtrace import Pin
 from ddtrace import config
@@ -94,10 +97,11 @@ def _store_headers(headers, span, integration_config, request_or_response):
         return
 
     for header_name, header_value in headers.items():
-        if not integration_config.header_is_traced(header_name):
+        tag_name = integration_config._header_tag_name(header_name)
+        if tag_name is None:
             continue
-        tag_name = _normalize_tag_name(request_or_response, header_name)
-        span.set_tag(tag_name, header_value)
+        # An empty tag defaults to a http.<request or response>.headers.<header name> tag
+        span.set_tag(tag_name or _normalize_tag_name(request_or_response, header_name), header_value)
 
 
 def _store_request_headers(headers, span, integration_config):
@@ -160,6 +164,16 @@ def with_traced_module(func):
         return wrapper
 
     return with_mod
+
+
+def distributed_tracing_enabled(int_config, default=False):
+    # type: (IntegrationConfig, bool) -> bool
+    """Returns whether distributed tracing is enabled for this integration config"""
+    if "distributed_tracing_enabled" in int_config and int_config.distributed_tracing_enabled is not None:
+        return int_config.distributed_tracing_enabled
+    elif "distributed_tracing" in int_config and int_config.distributed_tracing is not None:
+        return int_config.distributed_tracing
+    return default
 
 
 def int_service(pin, int_config, default=None):
@@ -250,10 +264,10 @@ def set_http_meta(
     if query is not None and integration_config.trace_query_string:
         span._set_str_tag(http.QUERY_STRING, query)
 
-    if request_headers is not None:
+    if request_headers is not None and integration_config.is_header_tracing_configured:
         _store_request_headers(dict(request_headers), span, integration_config)
 
-    if response_headers is not None:
+    if response_headers is not None and integration_config.is_header_tracing_configured:
         _store_response_headers(dict(response_headers), span, integration_config)
 
     if retries_remain is not None:
@@ -261,44 +275,49 @@ def set_http_meta(
 
 
 def activate_distributed_headers(tracer, int_config=None, request_headers=None, override=None):
-    # type: (Tracer, Optional[Dict[str, Any]], Optional[Dict[str, str]], Optional[bool]) -> None
+    # type: (Tracer, Optional[IntegrationConfig], Optional[Dict[str, str]], Optional[bool]) -> None
     """
     Helper for activating a distributed trace headers' context if enabled in integration config.
     int_config will be used to check if distributed trace headers context will be activated, but
     override will override whatever value is set in int_config if passed any value other than None.
     """
-    int_config = int_config or {}
-
     if override is False:
         return None
 
-    if override or int_config.get("distributed_tracing_enabled", int_config.get("distributed_tracing", False)):
+    if override or (int_config and distributed_tracing_enabled(int_config)):
         context = HTTPPropagator.extract(request_headers)
         # Only need to activate the new context if something was propagated
         if context.trace_id:
             tracer.context_provider.activate(context)
 
 
-def flatten_dict(
-    d,  # type: Dict[str, Any]
+def _flatten(
+    obj,  # type: Any
     sep=".",  # type: str
     prefix="",  # type: str
-    exclude=None,  # type: Optional[Set[str]]
+    exclude_policy=None,  # type: Optional[Callable[[str], bool]]
 ):
-    # type: (...) -> Dict[str, Any]
-    """
-    Returns a normalized dict of depth 1
-    """
-    flat = {}
+    # type: (...) -> Generator[Tuple[str, Any], None, None]
     s = deque()  # type: ignore
-    s.append((prefix, d))
-    exclude = exclude or set()
+    s.append((prefix, obj))
     while s:
         p, v = s.pop()
-        if p in exclude:
+        if exclude_policy is not None and exclude_policy(p):
             continue
         if isinstance(v, dict):
-            s.extend((p + sep + k if p else k, v) for k, v in v.items())
+            s.extend((sep.join((p, k)) if p else k, v) for k, v in v.items())
         else:
-            flat[p] = v
-    return flat
+            yield p, v
+
+
+def set_flattened_tags(
+    span,  # type: Span
+    items,  # type: Iterator[Tuple[str, Any]]
+    sep=".",  # type: str
+    exclude_policy=None,  # type: Optional[Callable[[str], bool]]
+    processor=None,  # type: Optional[Callable[[Any], Any]]
+):
+    # type: (...) -> None
+    for prefix, value in items:
+        for tag, v in _flatten(value, sep, prefix, exclude_policy):
+            span.set_tag(tag, processor(v) if processor is not None else v)
