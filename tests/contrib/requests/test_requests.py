@@ -11,11 +11,13 @@ import six
 from ddtrace import Pin
 from ddtrace import config
 from ddtrace.constants import ANALYTICS_SAMPLE_RATE_KEY
+from ddtrace.constants import ERROR_MSG
+from ddtrace.constants import ERROR_STACK
+from ddtrace.constants import ERROR_TYPE
 from ddtrace.contrib.requests import patch
 from ddtrace.contrib.requests import unpatch
 from ddtrace.contrib.requests.connection import _extract_hostname
 from ddtrace.contrib.requests.connection import _extract_query_string
-from ddtrace.ext import errors
 from ddtrace.ext import http
 from tests.opentracer.utils import init_tracer
 from tests.utils import TracerTestCase
@@ -121,7 +123,7 @@ class TestRequests(BaseRequestTestCase, TracerTestCase):
         assert_span_http_status_code(s, 200)
         assert s.error == 0
         assert s.span_type == "http"
-        assert http.QUERY_STRING not in s.meta
+        assert http.QUERY_STRING not in s._get_tags()
 
     def test_200_send(self):
         # when calling send directly
@@ -205,10 +207,10 @@ class TestRequests(BaseRequestTestCase, TracerTestCase):
         assert_is_measured(s)
         assert s.get_tag(http.METHOD) == "GET"
         assert s.error == 1
-        assert "Failed to establish a new connection" in s.get_tag(errors.MSG)
-        assert "Failed to establish a new connection" in s.get_tag(errors.STACK)
-        assert "Traceback (most recent call last)" in s.get_tag(errors.STACK)
-        assert "requests.exception" in s.get_tag(errors.TYPE)
+        assert "Failed to establish a new connection" in s.get_tag(ERROR_MSG)
+        assert "Failed to establish a new connection" in s.get_tag(ERROR_STACK)
+        assert "Traceback (most recent call last)" in s.get_tag(ERROR_STACK)
+        assert "requests.exception" in s.get_tag(ERROR_TYPE)
 
     def test_500(self):
         out = self.session.get(URL_500)
@@ -503,7 +505,6 @@ class TestRequests(BaseRequestTestCase, TracerTestCase):
         """
         pin = Pin(
             service=__name__,
-            app="requests",
             _config={
                 "service_name": __name__,
                 "distributed_tracing": False,
@@ -528,7 +529,6 @@ class TestRequests(BaseRequestTestCase, TracerTestCase):
         """
         pin = Pin(
             service=__name__,
-            app="requests",
             _config={
                 "service_name": __name__,
                 "distributed_tracing": False,
@@ -554,7 +554,8 @@ import ddtrace
 from ddtrace.contrib.requests import TracedSession
 
 # disable tracer writing to agent
-ddtrace.tracer.writer.flush_queue = mock.Mock(return_value=None)
+# FIXME: Remove use of this internal attribute of Tracer to disable writer
+ddtrace.tracer._writer.flush_queue = mock.Mock(return_value=None)
 
 session = TracedSession()
 session.get("http://httpbin.org/status/200")

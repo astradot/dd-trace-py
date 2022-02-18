@@ -1,3 +1,5 @@
+import os
+
 import mariadb
 
 from ddtrace import Pin
@@ -5,17 +7,17 @@ from ddtrace import config
 from ddtrace.contrib.dbapi import TracedConnection
 from ddtrace.ext import db
 from ddtrace.ext import net
-from ddtrace.utils.formats import asbool
-from ddtrace.utils.formats import get_env
-from ddtrace.utils.wrappers import unwrap
+from ddtrace.internal.utils.formats import asbool
+from ddtrace.internal.utils.wrappers import unwrap
 from ddtrace.vendor import wrapt
 
 
 config._add(
     "mariadb",
     dict(
-        trace_fetch_methods=asbool(get_env("mariadb", "trace_fetch_methods", default=False)),
+        trace_fetch_methods=asbool(os.getenv("DD_MARIADB_TRACE_FETCH_METHODS", default=False)),
         _default_service="mariadb",
+        _dbapi_span_name_prefix="mariadb",
     ),
 )
 
@@ -42,7 +44,7 @@ def _connect(func, instance, args, kwargs):
         db.NAME: kwargs["database"],
     }
 
-    pin = Pin(app="mariadb", tags=tags)
+    pin = Pin(tags=tags)
 
     wrapped = TracedConnection(conn, pin=pin, cfg=config.mariadb)
     pin.onto(wrapped)

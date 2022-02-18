@@ -4,9 +4,9 @@ import attr
 
 import ddtrace
 
-from ...utils import get_argument_value
-from ...utils.wrappers import unwrap as _u
+from ...internal.utils import get_argument_value
 from ...vendor.wrapt import wrap_function_wrapper as _w
+from ..trace_utils import unwrap as _u
 
 
 RECORD_ATTR_TRACE_ID = "dd.trace_id"
@@ -16,6 +16,7 @@ RECORD_ATTR_VERSION = "dd.version"
 RECORD_ATTR_SERVICE = "dd.service"
 RECORD_ATTR_VALUE_ZERO = "0"
 RECORD_ATTR_VALUE_EMPTY = ""
+_LOG_SPAN_KEY = "__datadog_log_span"
 
 ddtrace.config._add(
     "logging",
@@ -39,7 +40,9 @@ def _get_current_span(tracer=None):
     if not tracer:
         tracer = ddtrace.tracer
 
-    if not tracer.enabled:
+    # We might be calling this during library initialization, in which case `ddtrace.tracer` might
+    # be the `tracer` module and not the global tracer instance.
+    if not getattr(tracer, "enabled", False):
         return None
 
     return tracer.current_span()
@@ -55,7 +58,7 @@ def _w_makeRecord(func, instance, args, kwargs):
 
     # logs from internal logger may explicitly pass the current span to
     # avoid deadlocks in getting the current span while already in locked code.
-    span_from_log = getattr(record, ddtrace.constants.LOG_SPAN_KEY, None)
+    span_from_log = getattr(record, _LOG_SPAN_KEY, None)
     if isinstance(span_from_log, ddtrace.Span):
         span = span_from_log
     else:

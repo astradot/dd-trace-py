@@ -9,12 +9,14 @@ OpenTracing
 aiobotocore
 aiohttp
 aiopg
+aioredis
 algolia
 algoliasearch
 agentless
 analytics
 api
 app
+aredis
 args
 asgi
 asyncio
@@ -24,9 +26,11 @@ autopatching
 backend
 backends
 bikeshedding
+booleans
 boto
 botocore
 CGroup
+cassandra
 cgroups
 cherrypy
 codepath
@@ -58,6 +62,7 @@ entrypoints
 env
 enqueuer
 fastapi
+formatter
 gRPC
 gevent
 greenlet
@@ -139,9 +144,12 @@ submodules
 timestamp
 tweens
 uWSGI
+unbuffered
+unicode
 uninstrumented
 unix
 unpatch
+unpatched
 unregister
 unvendored
 url
@@ -154,3 +162,5 @@ whitelist
 workflow
 wsgi
 xfail
+yaaredis
+Kinesis

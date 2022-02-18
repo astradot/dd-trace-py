@@ -1,6 +1,7 @@
 # -*- encoding: utf-8 -*-
 import logging
 import os
+import typing
 from typing import List
 from typing import Optional
 
@@ -12,26 +13,23 @@ from ddtrace.internal import atexit
 from ddtrace.internal import service
 from ddtrace.internal import uwsgi
 from ddtrace.internal import writer
+from ddtrace.internal.utils import formats
 from ddtrace.profiling import collector
 from ddtrace.profiling import exporter
 from ddtrace.profiling import recorder
 from ddtrace.profiling import scheduler
 from ddtrace.profiling.collector import memalloc
 from ddtrace.profiling.collector import stack
+from ddtrace.profiling.collector import stack_event
 from ddtrace.profiling.collector import threading
 from ddtrace.profiling.exporter import file
 from ddtrace.profiling.exporter import http
-from ddtrace.utils import formats
+
+from . import _asyncio
+from ._asyncio import DdtraceProfilerEventLoopPolicy
 
 
 LOG = logging.getLogger(__name__)
-
-
-def _get_service_name():
-    for service_name_var in ("DD_SERVICE", "DD_SERVICE_NAME", "DATADOG_SERVICE_NAME"):
-        service_name = os.environ.get(service_name_var)
-        if service_name is not None:
-            return service_name
 
 
 class Profiler(object):
@@ -96,33 +94,11 @@ class Profiler(object):
         self._profiler = self._profiler.copy()
         self._profiler.start()
 
-    @property
-    def status(self):
-        return self._profiler.status
-
-    @property
-    def service(self):
-        return self._profiler.service
-
-    @property
-    def env(self):
-        return self._profiler.env
-
-    @property
-    def version(self):
-        return self._profiler.version
-
-    @property
-    def tracer(self):
-        return self._profiler.tracer
-
-    @property
-    def url(self):
-        return self._profiler.url
-
-    @property
-    def tags(self):
-        return self._profiler.tags
+    def __getattr__(
+        self, key  # type: str
+    ):
+        # type: (...) -> typing.Any
+        return getattr(self._profiler, key)
 
 
 @attr.s
@@ -135,13 +111,14 @@ class _ProfilerInstance(service.Service):
 
     # User-supplied values
     url = attr.ib(default=None)
-    service = attr.ib(factory=_get_service_name)
-    tags = attr.ib(factory=dict)
+    service = attr.ib(factory=lambda: os.environ.get("DD_SERVICE"))
+    tags = attr.ib(factory=dict, type=typing.Dict[str, bytes])
     env = attr.ib(factory=lambda: os.environ.get("DD_ENV"))
     version = attr.ib(factory=lambda: os.environ.get("DD_VERSION"))
     tracer = attr.ib(default=ddtrace.tracer)
     api_key = attr.ib(factory=lambda: os.environ.get("DD_API_KEY"), type=Optional[str])
     agentless = attr.ib(factory=lambda: formats.asbool(os.environ.get("DD_PROFILING_AGENTLESS", "False")), type=bool)
+    asyncio_loop_policy = attr.ib(factory=DdtraceProfilerEventLoopPolicy, repr=False, eq=False)
 
     _recorder = attr.ib(init=False, default=None)
     _collectors = attr.ib(init=False, default=None)
@@ -166,8 +143,8 @@ class _ProfilerInstance(service.Service):
             )
             endpoint = self.ENDPOINT_TEMPLATE.format(os.environ.get("DD_SITE", "datadoghq.com"))
         else:
-            if isinstance(self.tracer.writer, writer.AgentWriter):
-                endpoint = self.tracer.writer.agent_url
+            if isinstance(self.tracer._writer, writer.AgentWriter):
+                endpoint = self.tracer._writer.agent_url
             else:
                 endpoint = agent.get_trace_url()
 
@@ -195,8 +172,8 @@ class _ProfilerInstance(service.Service):
         r = self._recorder = recorder.Recorder(
             max_events={
                 # Allow to store up to 10 threads for 60 seconds at 100 Hz
-                stack.StackSampleEvent: 10 * 60 * 100,
-                stack.StackExceptionSampleEvent: 10 * 60 * 100,
+                stack_event.StackSampleEvent: 10 * 60 * 100,
+                stack_event.StackExceptionSampleEvent: 10 * 60 * 100,
                 # (default buffer size / interval) * export interval
                 memalloc.MemoryAllocSampleEvent: int(
                     (memalloc.MemoryCollector._DEFAULT_MAX_EVENTS / memalloc.MemoryCollector._DEFAULT_INTERVAL) * 60
@@ -219,6 +196,12 @@ class _ProfilerInstance(service.Service):
             self._scheduler = scheduler.Scheduler(
                 recorder=r, exporters=exporters, before_flush=self._collectors_snapshot
             )
+
+        self.set_asyncio_event_loop_policy()
+
+    def set_asyncio_event_loop_policy(self):
+        if self.asyncio_loop_policy is not None:
+            _asyncio.set_event_loop_policy(self.asyncio_loop_policy)
 
     def _collectors_snapshot(self):
         for c in self._collectors:

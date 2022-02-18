@@ -4,9 +4,11 @@ import urllib3
 
 from ddtrace import config
 from ddtrace.constants import ANALYTICS_SAMPLE_RATE_KEY
+from ddtrace.constants import ERROR_MSG
+from ddtrace.constants import ERROR_STACK
+from ddtrace.constants import ERROR_TYPE
 from ddtrace.contrib.urllib3 import patch
 from ddtrace.contrib.urllib3 import unpatch
-from ddtrace.ext import errors
 from ddtrace.ext import http
 from ddtrace.pin import Pin
 from tests.opentracer.utils import init_tracer
@@ -147,7 +149,7 @@ class TestUrllib3(BaseUrllib3TestCase):
         assert s.get_tag(http.STATUS_CODE) == "200"
         assert s.error == 0
         assert s.span_type == "http"
-        assert http.QUERY_STRING not in s.meta
+        assert http.QUERY_STRING not in s._get_tags()
 
     def test_200_query_string(self):
         """Tests query string tag is added when trace_query_string config is set"""
@@ -183,7 +185,7 @@ class TestUrllib3(BaseUrllib3TestCase):
         """Tests a connection error results in error spans with proper exc info"""
         retries = 3
         try:
-            self.http.request("GET", "http://fakesubdomain." + SOCKET, retries=retries)
+            self.http.request("GET", "http://localhost:9999", retries=retries)
         except Exception:
             pass
         else:
@@ -196,10 +198,10 @@ class TestUrllib3(BaseUrllib3TestCase):
             if i > 0:
                 assert s.get_tag(http.RETRIES_REMAIN) == str(retries - i)
             assert s.error == 1
-            assert "Failed to establish a new connection" in s.get_tag(errors.MSG)
-            assert "Failed to establish a new connection" in s.get_tag(errors.STACK)
-            assert "Traceback (most recent call last)" in s.get_tag(errors.STACK)
-            assert "urllib3.exceptions.MaxRetryError" in s.get_tag(errors.TYPE)
+            assert "Failed to establish a new connection" in s.get_tag(ERROR_MSG)
+            assert "Failed to establish a new connection" in s.get_tag(ERROR_STACK)
+            assert "Traceback (most recent call last)" in s.get_tag(ERROR_STACK)
+            assert "urllib3.exceptions.MaxRetryError" in s.get_tag(ERROR_TYPE)
 
     def test_default_service_name(self):
         """Test the default service name is set"""

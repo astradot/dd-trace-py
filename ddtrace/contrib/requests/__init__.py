@@ -34,6 +34,7 @@ Global Configuration
    Default: ``"requests"``
 
 
+    .. _requests-config-distributed-tracing:
 .. py:data:: ddtrace.config.requests['distributed_tracing']
 
    Whether or not to parse distributed tracing headers.
@@ -71,7 +72,7 @@ use the config API::
     cfg['service_name'] = 'auth-api'
     cfg['distributed_tracing'] = False
 """
-from ...utils.importlib import require_modules
+from ...internal.utils.importlib import require_modules
 
 
 required_modules = ["requests"]

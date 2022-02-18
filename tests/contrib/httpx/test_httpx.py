@@ -2,6 +2,7 @@ import os
 
 import httpx
 import pytest
+import six
 
 from ddtrace import config
 from ddtrace.contrib.httpx.patch import patch
@@ -45,6 +46,26 @@ def test_patching():
     unpatch()
     assert not isinstance(httpx.Client.send, ObjectProxy)
     assert not isinstance(httpx.AsyncClient.send, ObjectProxy)
+
+
+def test_httpx_service_name(tracer, test_spans):
+    """
+    When using split_by_domain
+        We set the span service name as a text type and not binary
+    """
+    client = httpx.Client()
+    Pin.override(client, tracer=tracer)
+
+    with override_config("httpx", {"split_by_domain": True}):
+        resp = client.get(get_url("/status/200"))
+    assert resp.status_code == 200
+
+    traces = test_spans.pop_traces()
+    assert len(traces) == 1
+
+    spans = traces[0]
+    assert len(spans) == 1
+    assert isinstance(spans[0].service, six.text_type)
 
 
 @pytest.mark.asyncio
@@ -121,12 +142,13 @@ async def test_configure_service_name_pin(tracer, test_spans):
 
 def test_configure_service_name_env(run_python_code_in_subprocess):
     """
-    When setting DD_HTTPX_SERVICE_NAME env variable
+    When setting DD_HTTPX_SERVICE env variable
         When DD_SERVICE is also set
-            We use the value from DD_HTTPX_SERVICE_NAME
+            We use the value from DD_HTTPX_SERVICE
     """
     code = """
 import asyncio
+import sys
 
 import httpx
 
@@ -146,10 +168,13 @@ async def test():
         async with httpx.AsyncClient() as client:
             await client.get(url)
 
-asyncio.get_event_loop().run_until_complete(test())
+if sys.version_info >= (3, 7, 0):
+    asyncio.run(test())
+else:
+    asyncio.get_event_loop().run_until_complete(test())
     """
     env = os.environ.copy()
-    env["DD_HTTPX_SERVICE_NAME"] = "env-overridden-service-name"
+    env["DD_HTTPX_SERVICE"] = "env-overridden-service-name"
     env["DD_SERVICE"] = "global-service-name"
     out, err, status, pid = run_python_code_in_subprocess(code, env=env)
     assert status == 0, err
@@ -163,6 +188,7 @@ def test_configure_global_service_name_env(run_python_code_in_subprocess):
     """
     code = """
 import asyncio
+import sys
 
 import httpx
 
@@ -182,7 +208,10 @@ async def test():
         async with httpx.AsyncClient() as client:
             await client.get(url)
 
-asyncio.get_event_loop().run_until_complete(test())
+if sys.version_info >= (3, 7, 0):
+    asyncio.run(test())
+else:
+    asyncio.get_event_loop().run_until_complete(test())
     """
     env = os.environ.copy()
     env["DD_SERVICE"] = "global-service-name"
@@ -324,6 +353,7 @@ def test_distributed_tracing_disabled_env(run_python_code_in_subprocess):
     """
     code = """
 import asyncio
+import sys
 
 import httpx
 
@@ -347,7 +377,10 @@ async def test():
         resp = await client.get(url)
         assert_request_headers(resp)
 
-asyncio.get_event_loop().run_until_complete(test())
+if sys.version_info >= (3, 7, 0):
+    asyncio.run(test())
+else:
+    asyncio.get_event_loop().run_until_complete(test())
     """
     env = os.environ.copy()
     env["DD_HTTPX_DISTRIBUTED_TRACING"] = "false"

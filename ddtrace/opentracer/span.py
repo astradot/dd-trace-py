@@ -9,8 +9,10 @@ from typing import Union
 from opentracing import Span as OpenTracingSpan
 from opentracing.ext import tags as OTTags
 
+from ddtrace.constants import ERROR_MSG
+from ddtrace.constants import ERROR_STACK
+from ddtrace.constants import ERROR_TYPE
 from ddtrace.context import Context as DatadogContext
-from ddtrace.ext import errors
 from ddtrace.internal.compat import NumericType
 from ddtrace.span import Span as DatadogSpan
 
@@ -40,7 +42,7 @@ class Span(OpenTracingSpan):
         self.finished = False
         self._lock = threading.Lock()
         # use a datadog span
-        self._dd_span = DatadogSpan(tracer._dd_tracer, operation_name, context=context._dd_context)
+        self._dd_span = DatadogSpan(operation_name, context=context._dd_context)
 
     def finish(self, finish_time=None):
         # type: (Optional[float]) -> None
@@ -120,11 +122,11 @@ class Span(OpenTracingSpan):
                 self._dd_span.error = 1
                 self.set_tag("error", 1)
             elif key == "error" or key == "error.object":
-                self.set_tag(errors.ERROR_TYPE, val)
+                self.set_tag(ERROR_TYPE, val)
             elif key == "message":
-                self.set_tag(errors.ERROR_MSG, val)
+                self.set_tag(ERROR_MSG, val)
             elif key == "stack":
-                self.set_tag(errors.ERROR_STACK, val)
+                self.set_tag(ERROR_STACK, val)
             else:
                 pass
 

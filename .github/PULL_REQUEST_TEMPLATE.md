@@ -1,6 +1,4 @@
-## Description
-<!-- Please briefly describe the change and why it was required. -->
-
+<!-- Briefly describe the change and why it was required. -->
 
 ## Checklist
 - [ ] Added to the correct milestone.

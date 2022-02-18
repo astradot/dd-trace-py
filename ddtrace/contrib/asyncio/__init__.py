@@ -27,7 +27,7 @@ handled between scheduled coroutines and ``Future`` invoked in separated
 threads:
 
     * ``set_call_context(task, ctx)``: attach the context to the given ``Task``
-      so that it will be available from the ``tracer.get_call_context()``
+      so that it will be available from the ``tracer.current_trace_context()``
     * ``ensure_future(coro_or_future, *, loop=None)``: wrapper for the
       ``asyncio.ensure_future`` that attaches the current context to a new
       ``Task`` instance
@@ -38,7 +38,7 @@ threads:
       current active ``Context`` so that generated traces in the new task are
       attached to the main trace
 """
-from ...utils.importlib import require_modules
+from ...internal.utils.importlib import require_modules
 
 
 required_modules = ["asyncio"]

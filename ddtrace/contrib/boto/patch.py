@@ -8,11 +8,11 @@ from ddtrace.constants import SPAN_MEASURED_KEY
 from ddtrace.ext import SpanTypes
 from ddtrace.ext import aws
 from ddtrace.ext import http
+from ddtrace.internal.utils.wrappers import unwrap
 from ddtrace.pin import Pin
-from ddtrace.utils.wrappers import unwrap
 from ddtrace.vendor import wrapt
 
-from ...utils import get_argument_value
+from ...internal.utils import get_argument_value
 
 
 # Original boto client class
@@ -42,8 +42,8 @@ def patch():
     # For example EC2 uses AWSQueryConnection and S3 uses AWSAuthConnection
     wrapt.wrap_function_wrapper("boto.connection", "AWSQueryConnection.make_request", patched_query_request)
     wrapt.wrap_function_wrapper("boto.connection", "AWSAuthConnection.make_request", patched_auth_request)
-    Pin(service="aws", app="aws").onto(boto.connection.AWSQueryConnection)
-    Pin(service="aws", app="aws").onto(boto.connection.AWSAuthConnection)
+    Pin(service="aws").onto(boto.connection.AWSQueryConnection)
+    Pin(service="aws").onto(boto.connection.AWSAuthConnection)
 
 
 def unpatch():

@@ -2,8 +2,8 @@ from ddtrace import config
 from ddtrace.internal.logger import get_logger
 from ddtrace.vendor import wrapt
 
+from ...internal.utils.wrappers import unwrap
 from ...pin import Pin
-from ...utils.wrappers import unwrap
 
 
 log = get_logger(__name__)
@@ -41,7 +41,7 @@ def patch():
 
         _w = wrapt.wrap_function_wrapper
         _w("aiohttp_jinja2", "render_template", _trace_render_template)
-        Pin(app="aiohttp", service=config.service).onto(aiohttp_jinja2)
+        Pin(service=config.service).onto(aiohttp_jinja2)
 
 
 def unpatch():

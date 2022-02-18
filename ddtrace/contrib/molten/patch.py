@@ -1,3 +1,5 @@
+import os
+
 import molten
 
 from ddtrace.vendor import wrapt
@@ -10,11 +12,10 @@ from ...constants import ANALYTICS_SAMPLE_RATE_KEY
 from ...constants import SPAN_MEASURED_KEY
 from ...ext import SpanTypes
 from ...internal.compat import urlencode
-from ...utils.formats import asbool
-from ...utils.formats import get_env
-from ...utils.importlib import func_name
-from ...utils.version import parse_version
-from ...utils.wrappers import unwrap as _u
+from ...internal.utils.formats import asbool
+from ...internal.utils.importlib import func_name
+from ...internal.utils.version import parse_version
+from ..trace_utils import unwrap as _u
 from .wrappers import MOLTEN_ROUTE
 from .wrappers import WrapperComponent
 from .wrappers import WrapperMiddleware
@@ -29,8 +30,7 @@ config._add(
     "molten",
     dict(
         _default_service="molten",
-        app="molten",
-        distributed_tracing=asbool(get_env("molten", "distributed_tracing", default=True)),
+        distributed_tracing=asbool(os.getenv("DD_MOLTEN_DISTRIBUTED_TRACING", default=True)),
     ),
 )
 
@@ -41,7 +41,7 @@ def patch():
         return
     setattr(molten, "_datadog_patch", True)
 
-    pin = Pin(app=config.molten["app"])
+    pin = Pin()
 
     # add pin to module since many classes use __slots__
     pin.onto(molten)
@@ -62,7 +62,6 @@ def unpatch():
 
         _u(molten.BaseApp, "__init__")
         _u(molten.App, "__call__")
-        _u(molten.Router, "add_route")
 
 
 def patch_app_call(wrapped, instance, args, kwargs):

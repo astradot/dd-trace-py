@@ -3,25 +3,23 @@ Trace queries along a session to a cassandra cluster
 """
 import sys
 
-# 3p
 import cassandra.cluster
 
-# project
 from ddtrace import config
 
 from ...constants import ANALYTICS_SAMPLE_RATE_KEY
+from ...constants import ERROR_MSG
+from ...constants import ERROR_TYPE
 from ...constants import SPAN_MEASURED_KEY
 from ...ext import SpanTypes
 from ...ext import cassandra as cassx
-from ...ext import errors
 from ...ext import net
 from ...internal.compat import maybe_stringify
 from ...internal.compat import stringify
 from ...internal.logger import get_logger
+from ...internal.utils import get_argument_value
+from ...internal.utils.formats import deep_getattr
 from ...pin import Pin
-from ...utils import get_argument_value
-from ...utils.deprecation import deprecated
-from ...utils.formats import deep_getattr
 from ...vendor import wrapt
 
 
@@ -39,7 +37,7 @@ _connect = cassandra.cluster.Cluster.connect
 def patch():
     """patch will add tracing to the cassandra library."""
     setattr(cassandra.cluster.Cluster, "connect", wrapt.FunctionWrapper(_connect, traced_connect))
-    Pin(service=SERVICE, app=SERVICE).onto(cassandra.cluster.Cluster)
+    Pin(service=SERVICE).onto(cassandra.cluster.Cluster)
 
 
 def unpatch():
@@ -83,8 +81,8 @@ def _close_span_on_error(exc, future):
         # handling the exception manually because we
         # don't have an ongoing exception here
         span.error = 1
-        span.set_tag(errors.ERROR_MSG, exc.args[0])
-        span.set_tag(errors.ERROR_TYPE, exc.__class__.__name__)
+        span.set_tag(ERROR_MSG, exc.args[0])
+        span.set_tag(ERROR_TYPE, exc.__class__.__name__)
     except Exception:
         log.debug("traced_set_final_exception was not able to set the error, failed with error", exc_info=True)
     finally:
@@ -274,17 +272,3 @@ def _sanitize_query(span, query):
         resource = "unknown-query-type"  # FIXME[matt] what else do to here?
 
     span.resource = stringify(resource)[:RESOURCE_MAX_LENGTH]
-
-
-#
-# DEPRECATED
-#
-
-
-@deprecated(message="Use patching instead (see the docs).", version="1.0.0")
-def get_traced_cassandra(*args, **kwargs):
-    return _get_traced_cluster(*args, **kwargs)
-
-
-def _get_traced_cluster(*args, **kwargs):
-    return cassandra.cluster.Cluster

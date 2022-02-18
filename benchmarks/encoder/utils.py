@@ -1,7 +1,7 @@
 import random
 import string
 
-from ddtrace.internal.encoding import Encoder
+from ddtrace.internal.encoding import MSGPACK_ENCODERS
 from ddtrace.span import Span
 
 
@@ -10,14 +10,14 @@ try:
     # see https://github.com/DataDog/dd-trace-py/pull/2422
     from ddtrace.internal._encoding import BufferedEncoder  # noqa: F401
 
-    def init_encoder(max_size=8 << 20, max_item_size=8 << 20):
-        return Encoder(max_size, max_item_size)
+    def init_encoder(encoding, max_size=8 << 20, max_item_size=8 << 20):
+        return MSGPACK_ENCODERS[encoding](max_size, max_item_size)
 
 
 except ImportError:
 
-    def init_encoder():
-        return Encoder()
+    def init_encoder(encoding):
+        return MSGPACK_ENCODERS[encoding]()
 
 
 def _rands(size=6, chars=string.ascii_uppercase + string.digits):
@@ -25,10 +25,12 @@ def _rands(size=6, chars=string.ascii_uppercase + string.digits):
 
 
 def _random_values(k, size):
-    return list(set([_rands(size=size) for _ in range(k)]))
+    return list(dict.fromkeys([_rands(size=size) for _ in range(k)]))
 
 
 def gen_traces(config):
+    random.seed(1)
+
     traces = []
 
     # choose from a set of randomly generated span attributes
@@ -47,7 +49,7 @@ def gen_traces(config):
             span_name = random.choice(span_names)
             resource = random.choice(resources)
             service = random.choice(services)
-            with Span(None, span_name, resource=resource, service=service, parent_id=parent_id) as span:
+            with Span(span_name, resource=resource, service=service, parent_id=parent_id) as span:
                 if i == 0 and config.dd_origin:
                     # Since we're not using the tracer API, a span's context isn't automatically propagated
                     # to its children. The encoder only checks the root span's context in a trace for dd_origin, so

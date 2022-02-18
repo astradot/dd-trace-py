@@ -55,7 +55,7 @@ To configure the integration on an per-connection basis use the
     cursor.execute("SELECT 6*7 AS the_answer;")
 """
 
-from ...utils.importlib import require_modules
+from ...internal.utils.importlib import require_modules
 
 
 required_modules = ["pymysql"]
@@ -63,6 +63,5 @@ required_modules = ["pymysql"]
 with require_modules(required_modules) as missing_modules:
     if not missing_modules:
         from .patch import patch
-        from .tracers import get_traced_pymysql_connection
 
-        __all__ = ["get_traced_pymysql_connection", "patch"]
+        __all__ = ["patch"]

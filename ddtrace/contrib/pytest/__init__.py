@@ -11,9 +11,11 @@ file read by pytest (``pytest.ini``, ``setup.cfg``, ...)::
     [pytest]
     ddtrace = 1
 
-You can enable all integrations by using the ``--ddtrace-patch-all`` option or by adding this to your configuration::
+You can enable all integrations by using the ``--ddtrace-patch-all`` option
+alongside ``--ddtrace`` or by adding this to your configuration::
 
     [pytest]
+    ddtrace = 1
     ddtrace-patch-all = 1
 
 Global Configuration
@@ -39,9 +41,9 @@ Global Configuration
    Default: ``"pytest.test"``
 """
 
-from ddtrace import config
+import os
 
-from ...utils.formats import get_env
+from ddtrace import config
 
 
 # pytest default settings
@@ -49,6 +51,6 @@ config._add(
     "pytest",
     dict(
         _default_service="pytest",
-        operation_name=get_env("pytest", "operation_name", default="pytest.test"),
+        operation_name=os.getenv("DD_PYTEST_OPERATION_NAME", default="pytest.test"),
     ),
 )

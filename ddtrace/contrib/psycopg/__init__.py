@@ -51,15 +51,14 @@ To configure the psycopg integration on an per-connection basis use the
     cursor = db.cursor()
     cursor.execute("select * from users where id = 1")
 """
-from ...utils.importlib import require_modules
+from ...internal.utils.importlib import require_modules
 
 
 required_modules = ["psycopg2"]
 
 with require_modules(required_modules) as missing_modules:
     if not missing_modules:
-        from .connection import connection_factory
         from .patch import patch
         from .patch import patch_conn
 
-        __all__ = ["connection_factory", "patch", "patch_conn"]
+        __all__ = ["patch", "patch_conn"]

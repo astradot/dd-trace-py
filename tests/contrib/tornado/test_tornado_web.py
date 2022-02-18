@@ -45,7 +45,7 @@ class TestTornadoWeb(TornadoTestCase):
         if config.tornado.trace_query_string:
             assert query_string == request_span.get_tag(http.QUERY_STRING)
         else:
-            assert http.QUERY_STRING not in request_span.meta
+            assert http.QUERY_STRING not in request_span._get_tags()
         assert 0 == request_span.error
 
     def test_success_handler_query_string(self):
@@ -54,6 +54,27 @@ class TestTornadoWeb(TornadoTestCase):
     def test_success_handler_query_string_trace(self):
         with self.override_http_config("tornado", dict(trace_query_string=True)):
             self.test_success_handler("foo=bar")
+
+    def test_status_code_500_handler(self):
+        """
+        Test an endpoint which sets the status code to 500 but doesn't raise an exception
+
+        We expect the resulting span to be marked as an error
+        """
+        response = self.fetch("/status_code/500")
+        assert 500 == response.code
+
+        traces = self.pop_traces()
+        assert 1 == len(traces)
+        assert 1 == len(traces[0])
+
+        request_span = traces[0][0]
+        assert_is_measured(request_span)
+        assert "tests.contrib.tornado.web.app.ResponseStatusHandler" == request_span.resource
+        assert "GET" == request_span.get_tag("http.method")
+        assert_span_http_status_code(request_span, 500)
+        assert self.get_url("/status_code/500") == request_span.get_tag(http.URL)
+        assert 1 == request_span.error
 
     def test_nested_handler(self):
         # it should trace a handler that calls the tracer.trace() method

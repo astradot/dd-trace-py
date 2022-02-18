@@ -78,24 +78,24 @@ below:
      - Enables <INTEGRATION> to be patched. For example, ``DD_TRACE_DJANGO_ENABLED=false`` will disable the Django
        integration from being installed. Added in ``v0.41.0``.
 
-       .. _datadog-patch-modules:
-   * - ``DATADOG_PATCH_MODULES``
+       .. _dd-patch-modules:
+   * - ``DD_PATCH_MODULES``
      - String
      -
      - Override the modules patched for this execution of the program. Must be
        a list in the ``module1:boolean,module2:boolean`` format. For example,
-       ``boto:true,redis:false``.
+       ``boto:true,redis:false``. Added in ``v0.55.0`` (formerly named ``DATADOG_PATCH_MODULES``).
 
        .. _dd-logs-injection:
    * - ``DD_LOGS_INJECTION``
      - Boolean
-     - True
+     - False
      - Enables :ref:`Logs Injection`.
 
        .. _dd-call-basic-config:
    * - ``DD_CALL_BASIC_CONFIG``
      - Boolean
-     - True
+     - False
      - Controls whether ``logging.basicConfig`` is called in ``ddtrace-run`` or when debug mode is enabled.
 
        .. _dd-trace-agent-url:
@@ -129,14 +129,14 @@ below:
        .. _dd-trace-writer-buffer-size-bytes:
    * - ``DD_TRACE_WRITER_BUFFER_SIZE_BYTES``
      - Int
-     - 8000000
+     - 8388608
      - The max size in bytes of traces to buffer between flushes to the agent.
 
        .. _dd-trace-writer-max-payload-size-bytes:
    * - ``DD_TRACE_WRITER_MAX_PAYLOAD_SIZE_BYTES``
      - Int
-     - 8000000
-     - The max size in bytes of each payload sent to the trace agent. If max payload size is less than buffer size, multiple payloads will be sent to the trace agent.
+     - 8388608
+     - The max size in bytes of each payload item sent to the trace agent. If the max payload size is greater than buffer size, then max size of each payload item will be the buffer size.
 
        .. _dd-trace-writer-interval-seconds:
    * - ``DD_TRACE_WRITER_INTERVAL_SECONDS``
@@ -170,6 +170,13 @@ below:
      - A map of case-insensitive header keys to tag names. Automatically applies matching header values as tags on root spans.
        For example, ``User-Agent:http.useragent,content-type:http.content_type``.
 
+       .. _dd-trace-api-version:
+   * - ``DD_TRACE_API_VERSION``
+     - String
+     - ``v0.4`` if priority sampling is enabled, else ``v0.3``
+     - The trace API version to use when sending traces to the Datadog agent.
+       Currently, the supported versions are: ``v0.3``, ``v0.4`` and ``v0.5``.
+
        .. _dd-profiling-enabled:
    * - ``DD_PROFILING_ENABLED``
      - Boolean
@@ -199,7 +206,7 @@ below:
        .. _dd-profiling-heap-enabled:
    * - ``DD_PROFILING_HEAP_ENABLED``
      - Boolean
-     - False
+     - True
      - Whether to enable the heap memory profiler.
 
        .. _dd-profiling-capture-pct:
@@ -228,5 +235,11 @@ below:
      -
      - The tags to apply to uploaded profile. Must be a list in the
        ``key1:value,key2:value2`` format.
+
+       .. _dd-profiling-endpoing-collection-enabled:
+   * - ``DD_PROFILING_ENDPOINT_COLLECTION_ENABLED``
+     - Boolean
+     - True
+     - Whether to enable the endpoint data collection in profiles.
 
 .. _Unified Service Tagging: https://docs.datadoghq.com/getting_started/tagging/unified_service_tagging/

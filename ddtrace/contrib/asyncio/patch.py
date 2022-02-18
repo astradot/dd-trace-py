@@ -4,7 +4,7 @@ import sys
 from ddtrace.vendor.wrapt import ObjectProxy
 from ddtrace.vendor.wrapt import wrap_function_wrapper as _w
 
-from ...utils.wrappers import unwrap as _u
+from ..trace_utils import unwrap as _u
 from .wrappers import wrapped_create_task
 
 
@@ -31,10 +31,10 @@ def unpatch():
     if getattr(asyncio, "_datadog_patch", False):
         setattr(asyncio, "_datadog_patch", False)
 
-    if sys.version_info < (3, 7, 0):
-        _u(asyncio.BaseEventLoop, "create_task")
+        if sys.version_info < (3, 7, 0):
+            _u(asyncio.BaseEventLoop, "create_task")
 
-        # also unpatch event loop if not inheriting the already unwrapped create_task from BaseEventLoop
-        loop = asyncio.get_event_loop()
-        if isinstance(loop.create_task, ObjectProxy):
-            _u(loop, "create_task")
+            # also unpatch event loop if not inheriting the already unwrapped create_task from BaseEventLoop
+            loop = asyncio.get_event_loop()
+            if isinstance(loop.create_task, ObjectProxy):
+                _u(loop, "create_task")

@@ -3,14 +3,10 @@ import redis
 from ddtrace import config
 from ddtrace.vendor import wrapt
 
-from .. import trace_utils
-from ...constants import ANALYTICS_SAMPLE_RATE_KEY
-from ...constants import SPAN_MEASURED_KEY
-from ...ext import SpanTypes
-from ...ext import redis as redisx
 from ...pin import Pin
-from ...utils.wrappers import unwrap
-from .util import _extract_conn_tags
+from ..trace_utils import unwrap
+from .util import _trace_redis_cmd
+from .util import _trace_redis_execute_pipeline
 from .util import format_command_args
 
 
@@ -40,7 +36,7 @@ def patch():
         _w("redis", "Redis.pipeline", traced_pipeline)
         _w("redis.client", "Pipeline.execute", traced_execute_pipeline)
         _w("redis.client", "Pipeline.immediate_execute_command", traced_execute_command)
-    Pin(service=None, app=redisx.APP).onto(redis.StrictRedis)
+    Pin(service=None).onto(redis.StrictRedis)
 
 
 def unpatch():
@@ -68,20 +64,7 @@ def traced_execute_command(func, instance, args, kwargs):
     if not pin or not pin.enabled():
         return func(*args, **kwargs)
 
-    with pin.tracer.trace(
-        redisx.CMD, service=trace_utils.ext_service(pin, config.redis, pin), span_type=SpanTypes.REDIS
-    ) as s:
-        s.set_tag(SPAN_MEASURED_KEY)
-        query = format_command_args(args)
-        s.resource = query
-        s.set_tag(redisx.RAWCMD, query)
-        if pin.tags:
-            s.set_tags(pin.tags)
-        s.set_tags(_get_tags(instance))
-        s.set_metric(redisx.ARGS_LEN, len(args))
-        # set analytics sample rate if enabled
-        s.set_tag(ANALYTICS_SAMPLE_RATE_KEY, config.redis.get_analytics_sample_rate())
-        # run the command
+    with _trace_redis_cmd(pin, config.redis, instance, args):
         return func(*args, **kwargs)
 
 
@@ -98,26 +81,7 @@ def traced_execute_pipeline(func, instance, args, kwargs):
     if not pin or not pin.enabled():
         return func(*args, **kwargs)
 
-    # FIXME[matt] done in the agent. worth it?
     cmds = [format_command_args(c) for c, _ in instance.command_stack]
     resource = "\n".join(cmds)
-    tracer = pin.tracer
-    with tracer.trace(
-        redisx.CMD,
-        resource=resource,
-        service=trace_utils.ext_service(pin, config.redis),
-        span_type=SpanTypes.REDIS,
-    ) as s:
-        s.set_tag(SPAN_MEASURED_KEY)
-        s.set_tag(redisx.RAWCMD, resource)
-        s.set_tags(_get_tags(instance))
-        s.set_metric(redisx.PIPELINE_LEN, len(instance.command_stack))
-
-        # set analytics sample rate if enabled
-        s.set_tag(ANALYTICS_SAMPLE_RATE_KEY, config.redis.get_analytics_sample_rate())
-
+    with _trace_redis_execute_pipeline(pin, config.redis, resource, instance):
         return func(*args, **kwargs)
-
-
-def _get_tags(conn):
-    return _extract_conn_tags(conn.connection_pool.connection_kwargs)

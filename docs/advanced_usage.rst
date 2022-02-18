@@ -128,6 +128,14 @@ span has to be propagated as a context::
         time.sleep(1)
         proc.join()
 
+
+.. important::
+
+   A :class:`ddtrace.Span` should only be accessed or modified in the process
+   that it was created in. Using a :class:`ddtrace.Span` from within a child process
+   could result in a deadlock or unexpected behavior.
+
+
 fork
 ****
 If using `fork()`, any open spans from the parent process must be finished by
@@ -286,7 +294,7 @@ propagate a `rpc_metadata` dictionary over the wire::
         tracer.context_provider.activate(context)
 
         with tracer.trace("child_span") as span:
-            span.set_meta('my_rpc_method', method)
+            span.set_tag('my_rpc_method', method)
 
 
 Resolving deprecation warnings
@@ -737,14 +745,13 @@ API
 ``patch_all``
 ^^^^^^^^^^^^^
 
-.. autofunction:: ddtrace.monkey.patch_all
+.. autofunction:: ddtrace.patch_all
 
 .. _patch:
 
 ``patch``
 ^^^^^^^^^
-.. autofunction:: ddtrace.monkey.patch
+.. autofunction:: ddtrace.patch
 
 .. toctree::
    :maxdepth: 2
-   

@@ -14,6 +14,7 @@ from ddtrace.constants import KEEP_SPANS_RATE_KEY
 from ddtrace.internal.compat import PY3
 from ddtrace.internal.compat import get_connection_response
 from ddtrace.internal.compat import httplib
+from ddtrace.internal.encoding import MSGPACK_ENCODERS
 from ddtrace.internal.uds import UDSHTTPConnection
 from ddtrace.internal.writer import AgentWriter
 from ddtrace.internal.writer import LogWriter
@@ -43,9 +44,7 @@ class AgentWriterTests(BaseTestCase):
         statsd = mock.Mock()
         writer = AgentWriter(agent_url="http://asdf:1234", dogstatsd=statsd, report_metrics=False)
         for i in range(10):
-            writer.write(
-                [Span(tracer=None, name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)]
-            )
+            writer.write([Span(name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)])
         writer.stop()
         writer.join()
 
@@ -56,9 +55,7 @@ class AgentWriterTests(BaseTestCase):
         statsd = mock.Mock()
         writer = AgentWriter(agent_url="http://asdf:1234", dogstatsd=statsd, report_metrics=True)
         for i in range(10):
-            writer.write(
-                [Span(tracer=None, name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)]
-            )
+            writer.write([Span(name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)])
         writer.stop()
         writer.join()
 
@@ -77,12 +74,8 @@ class AgentWriterTests(BaseTestCase):
         statsd = mock.Mock()
         writer = AgentWriter(agent_url="http://asdf:1234", dogstatsd=statsd, report_metrics=True)
         for i in range(10):
-            writer.write(
-                [Span(tracer=None, name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)]
-            )
-        writer.write(
-            [Span(tracer=None, name="a" * 5000, trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(2 ** 10)]
-        )
+            writer.write([Span(name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)])
+        writer.write([Span(name="a" * 5000, trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(2 ** 10)])
         writer.stop()
         writer.join()
 
@@ -103,9 +96,7 @@ class AgentWriterTests(BaseTestCase):
         statsd = mock.Mock()
         writer = AgentWriter(agent_url="http://asdf:1234", dogstatsd=statsd, report_metrics=True)
         for i in range(10):
-            writer.write(
-                [Span(tracer=None, name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)]
-            )
+            writer.write([Span(name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)])
         writer.flush_queue()
         statsd.distribution.assert_has_calls(
             [
@@ -121,9 +112,7 @@ class AgentWriterTests(BaseTestCase):
         statsd.reset_mock()
 
         for i in range(10):
-            writer.write(
-                [Span(tracer=None, name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)]
-            )
+            writer.write([Span(name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)])
         writer.stop()
         writer.join()
 
@@ -141,7 +130,7 @@ class AgentWriterTests(BaseTestCase):
     def test_write_sync(self):
         statsd = mock.Mock()
         writer = AgentWriter(agent_url="http://asdf:1234", dogstatsd=statsd, report_metrics=True, sync_mode=True)
-        writer.write([Span(tracer=None, name="name", trace_id=1, span_id=j, parent_id=j - 1 or None) for j in range(5)])
+        writer.write([Span(name="name", trace_id=1, span_id=j, parent_id=j - 1 or None) for j in range(5)])
         statsd.distribution.assert_has_calls(
             [
                 mock.call("datadog.tracer.buffer.accepted.traces", 1, tags=[]),
@@ -159,9 +148,7 @@ class AgentWriterTests(BaseTestCase):
         writer = AgentWriter(agent_url="http://asdf:1234", dogstatsd=statsd, report_metrics=False)
         writer._metrics_reset = writer_metrics_reset
         for i in range(10):
-            writer.write(
-                [Span(tracer=None, name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)]
-            )
+            writer.write([Span(name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)])
         writer.stop()
         writer.join()
 
@@ -176,12 +163,8 @@ class AgentWriterTests(BaseTestCase):
         writer = AgentWriter(agent_url="http://asdf:1234", dogstatsd=statsd, report_metrics=False)
         writer._metrics_reset = writer_metrics_reset
         for i in range(10):
-            writer.write(
-                [Span(tracer=None, name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)]
-            )
-        writer.write(
-            [Span(tracer=None, name="a" * 5000, trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(2 ** 10)]
-        )
+            writer.write([Span(name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)])
+        writer.write([Span(name="a" * 5000, trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(2 ** 10)])
         writer.stop()
         writer.join()
 
@@ -196,10 +179,8 @@ class AgentWriterTests(BaseTestCase):
         writer = AgentWriter(agent_url="http://asdf:1234", buffer_size=5300, dogstatsd=statsd, report_metrics=False)
         writer._metrics_reset = writer_metrics_reset
         for i in range(10):
-            writer.write(
-                [Span(tracer=None, name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)]
-            )
-        writer.write([Span(tracer=None, name="a", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)])
+            writer.write([Span(name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)])
+        writer.write([Span(name="a", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)])
         writer.stop()
         writer.join()
 
@@ -219,9 +200,7 @@ class AgentWriterTests(BaseTestCase):
         writer._encoder = writer_encoder
         writer._metrics_reset = writer_metrics_reset
         for i in range(n_traces):
-            writer.write(
-                [Span(tracer=None, name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)]
-            )
+            writer.write([Span(name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)])
 
         writer.stop()
         writer.join()
@@ -240,12 +219,11 @@ class AgentWriterTests(BaseTestCase):
         writer._put = writer_put
 
         traces = [
-            [Span(tracer=None, name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)]
-            for i in range(4)
+            [Span(name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(5)] for i in range(4)
         ]
 
         traces_too_big = [
-            [Span(tracer=None, name="a" * 5000, trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(2 ** 10)]
+            [Span(name="a" * 5000, trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(2 ** 10)]
             for i in range(4)
         ]
 
@@ -314,9 +292,7 @@ class LogWriterTests(BaseTestCase):
         self.output = DummyOutput()
         writer = LogWriter(out=self.output)
         for i in range(self.N_TRACES):
-            writer.write(
-                [Span(tracer=None, name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(7)]
-            )
+            writer.write([Span(name="name", trace_id=i, span_id=j, parent_id=j - 1 or None) for j in range(7)])
         return writer
 
     def test_log_writer(self):
@@ -462,18 +438,18 @@ def test_agent_url_path(endpoint_assert_path):
     # test without base path
     endpoint_assert_path("/v0.")
     writer = AgentWriter(agent_url="http://%s:%s/" % (_HOST, _PORT))
-    writer._encoder.put([Span(None, "foobar")])
+    writer._encoder.put([Span("foobar")])
     writer.flush_queue(raise_exc=True)
 
     # test without base path nor trailing slash
     writer = AgentWriter(agent_url="http://%s:%s" % (_HOST, _PORT))
-    writer._encoder.put([Span(None, "foobar")])
+    writer._encoder.put([Span("foobar")])
     writer.flush_queue(raise_exc=True)
 
     # test with a base path
     endpoint_assert_path("/test/v0.")
     writer = AgentWriter(agent_url="http://%s:%s/test/" % (_HOST, _PORT))
-    writer._encoder.put([Span(None, "foobar")])
+    writer._encoder.put([Span("foobar")])
     writer.flush_queue(raise_exc=True)
 
 
@@ -484,14 +460,14 @@ def test_flush_connection_timeout_connect():
     else:
         exc_type = socket.error
     with pytest.raises(exc_type):
-        writer._encoder.put([Span(None, "foobar")])
+        writer._encoder.put([Span("foobar")])
         writer.flush_queue(raise_exc=True)
 
 
 def test_flush_connection_timeout(endpoint_test_timeout_server):
     writer = AgentWriter(agent_url="http://%s:%s" % (_HOST, _TIMEOUT_PORT))
     with pytest.raises(socket.timeout):
-        writer._encoder.put([Span(None, "foobar")])
+        writer._encoder.put([Span("foobar")])
         writer.flush_queue(raise_exc=True)
 
 
@@ -502,13 +478,13 @@ def test_flush_connection_reset(endpoint_test_reset_server):
     else:
         exc_types = (httplib.BadStatusLine,)
     with pytest.raises(exc_types):
-        writer._encoder.put([Span(None, "foobar")])
+        writer._encoder.put([Span("foobar")])
         writer.flush_queue(raise_exc=True)
 
 
 def test_flush_connection_uds(endpoint_uds_server):
     writer = AgentWriter(agent_url="unix://%s" % endpoint_uds_server.server_address)
-    writer._encoder.put([Span(None, "foobar")])
+    writer._encoder.put([Span("foobar")])
     writer.flush_queue(raise_exc=True)
 
 
@@ -529,7 +505,7 @@ def test_racing_start():
     writer = AgentWriter(agent_url="http://dne:1234")
 
     def do_write(i):
-        writer.write([Span(None, str(i))])
+        writer.write([Span(str(i))])
 
     ts = [threading.Thread(target=do_write, args=(i,)) for i in range(100)]
     for t in ts:
@@ -546,3 +522,31 @@ def test_additional_headers():
         writer = AgentWriter(agent_url="http://localhost:9126")
         assert writer._headers["additional-header"] == "additional-value"
         assert writer._headers["header2"] == "value2"
+
+
+def test_bad_encoding(monkeypatch):
+    monkeypatch.setenv("DD_TRACE_API_VERSION", "foo")
+
+    with pytest.raises(ValueError):
+        AgentWriter(agent_url="http://localhost:9126")
+
+
+@pytest.mark.parametrize(
+    "init_api_version,api_version,endpoint,encoder_cls",
+    [
+        (None, "v0.3", "v0.3/traces", MSGPACK_ENCODERS["v0.3"]),
+        ("v0.3", "v0.3", "v0.3/traces", MSGPACK_ENCODERS["v0.3"]),
+        ("v0.4", "v0.4", "v0.4/traces", MSGPACK_ENCODERS["v0.4"]),
+        ("v0.5", "v0.5", "v0.5/traces", MSGPACK_ENCODERS["v0.5"]),
+    ],
+)
+def test_writer_recreate_api_version(init_api_version, api_version, endpoint, encoder_cls):
+    writer = AgentWriter(agent_url="http://dne:1234", api_version=init_api_version)
+    assert writer._api_version == api_version
+    assert writer._endpoint == endpoint
+    assert isinstance(writer._encoder, encoder_cls)
+
+    writer = writer.recreate()
+    assert writer._api_version == api_version
+    assert writer._endpoint == endpoint
+    assert isinstance(writer._encoder, encoder_cls)

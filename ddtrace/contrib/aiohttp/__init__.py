@@ -1,6 +1,8 @@
 """
 The ``aiohttp`` integration traces all requests defined in the application handlers.
-Auto instrumentation is available using the ``trace_app`` function::
+
+Automatic instrumentation is not available for ``aiohttp.web.Application``, instead
+the provided ``trace_app`` function must be used::
 
     from aiohttp import web
     from ddtrace import tracer, patch
@@ -47,7 +49,7 @@ to the ``request`` object, so that it can be used in the application code::
 :ref:`All HTTP tags <http-tagging>` are supported for this integration.
 
 """
-from ...utils.importlib import require_modules
+from ...internal.utils.importlib import require_modules
 
 
 required_modules = ["aiohttp"]

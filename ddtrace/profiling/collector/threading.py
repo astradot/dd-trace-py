@@ -7,38 +7,43 @@ import typing
 
 import attr
 
+import ddtrace
 from ddtrace.internal import compat
 from ddtrace.internal import nogevent
+from ddtrace.internal.utils import attr as attr_utils
+from ddtrace.internal.utils import formats
+from ddtrace.profiling import _threading
 from ddtrace.profiling import collector
 from ddtrace.profiling import event
 from ddtrace.profiling.collector import _task
-from ddtrace.profiling.collector import _threading
 from ddtrace.profiling.collector import _traceback
-from ddtrace.utils import attr as attr_utils
-from ddtrace.utils import formats
 from ddtrace.vendor import wrapt
+
+
+if typing.TYPE_CHECKING:
+    from ddtrace.profiling import recorder as ddrecorder
 
 
 @event.event_class
 class LockEventBase(event.StackBasedEvent):
     """Base Lock event."""
 
-    lock_name = attr.ib(default=None)
-    sampling_pct = attr.ib(default=None)
+    lock_name = attr.ib(default="<unknown lock name>", type=str)
+    sampling_pct = attr.ib(default=0, type=int)
 
 
 @event.event_class
 class LockAcquireEvent(LockEventBase):
     """A lock has been acquired."""
 
-    wait_time_ns = attr.ib(default=None)
+    wait_time_ns = attr.ib(default=0, type=int)
 
 
 @event.event_class
 class LockReleaseEvent(LockEventBase):
     """A lock has been released."""
 
-    locked_for_ns = attr.ib(default=None)
+    locked_for_ns = attr.ib(default=0, type=int)
 
 
 def _current_thread():
@@ -62,7 +67,16 @@ else:
 
 
 class _ProfiledLock(wrapt.ObjectProxy):
-    def __init__(self, wrapped, recorder, tracer, max_nframes, capture_sampler, endpoint_collection_enabled):
+    def __init__(
+        self,
+        wrapped,  # type: threading.Lock
+        recorder,  # type: ddrecorder.Recorder
+        tracer,  # type: ddtrace.Tracer
+        max_nframes,  # type: int
+        capture_sampler,  # type: collector.CaptureSampler
+        endpoint_collection_enabled,  # type: bool
+    ):
+        # type: (...) -> None
         wrapt.ObjectProxy.__init__(self, wrapped)
         self._self_recorder = recorder
         self._self_tracer = tracer
@@ -71,7 +85,10 @@ class _ProfiledLock(wrapt.ObjectProxy):
         self._self_endpoint_collection_enabled = endpoint_collection_enabled
         frame = sys._getframe(2 if WRAPT_C_EXT else 3)
         code = frame.f_code
-        self._self_name = "%s:%d" % (os.path.basename(code.co_filename), frame.f_lineno)
+        self._self_name = "%s:%d" % (
+            os.path.basename(code.co_filename),
+            0 if frame.f_lineno is None else frame.f_lineno,
+        )
 
     def acquire(self, *args, **kwargs):
         if not self._self_capture_sampler.capture():
@@ -84,8 +101,15 @@ class _ProfiledLock(wrapt.ObjectProxy):
             try:
                 end = self._self_acquired_at = compat.monotonic_ns()
                 thread_id, thread_name = _current_thread()
-                frames, nframes = _traceback.pyframe_to_frames(sys._getframe(1), self._self_max_nframes)
-                task_id, task_name = _task.get_task(thread_id)
+                task_id, task_name, task_frame = _task.get_task(thread_id)
+
+                if task_frame is None:
+                    frame = sys._getframe(1)
+                else:
+                    frame = task_frame
+
+                frames, nframes = _traceback.pyframe_to_frames(frame, self._self_max_nframes)
+
                 event = LockAcquireEvent(
                     lock_name=self._self_name,
                     frames=frames,
@@ -105,7 +129,12 @@ class _ProfiledLock(wrapt.ObjectProxy):
             except Exception:
                 pass
 
-    def release(self, *args, **kwargs):
+    def release(
+        self,
+        *args,  # type: typing.Any
+        **kwargs  # type: typing.Any
+    ):
+        # type: (...) -> None
         try:
             return self.__wrapped__.release(*args, **kwargs)
         finally:
@@ -113,10 +142,17 @@ class _ProfiledLock(wrapt.ObjectProxy):
                 if hasattr(self, "_self_acquired_at"):
                     try:
                         end = compat.monotonic_ns()
-                        frames, nframes = _traceback.pyframe_to_frames(sys._getframe(1), self._self_max_nframes)
                         thread_id, thread_name = _current_thread()
-                        task_id, task_name = _task.get_task(thread_id)
-                        event = LockReleaseEvent(
+                        task_id, task_name, task_frame = _task.get_task(thread_id)
+
+                        if task_frame is None:
+                            frame = sys._getframe(1)
+                        else:
+                            frame = task_frame
+
+                        frames, nframes = _traceback.pyframe_to_frames(frame, self._self_max_nframes)
+
+                        event = LockReleaseEvent(  # type: ignore[call-arg]
                             lock_name=self._self_name,
                             frames=frames,
                             nframes=nframes,

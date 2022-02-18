@@ -10,8 +10,8 @@ from ddtrace.contrib.redis.patch import traced_pipeline
 from ddtrace.contrib.redis.util import format_command_args
 from ddtrace.ext import SpanTypes
 from ddtrace.ext import redis as redisx
+from ddtrace.internal.utils.wrappers import unwrap
 from ddtrace.pin import Pin
-from ddtrace.utils.wrappers import unwrap
 from ddtrace.vendor import wrapt
 
 
@@ -31,12 +31,12 @@ def patch():
         _w("rediscluster", "client.RedisCluster.execute_command", traced_execute_command)
         _w("rediscluster", "client.RedisCluster.pipeline", traced_pipeline)
         _w("rediscluster", "pipeline.ClusterPipeline.execute", traced_execute_pipeline)
-        Pin(service=redisx.DEFAULT_SERVICE, app=redisx.APP).onto(rediscluster.RedisCluster)
+        Pin(service=redisx.DEFAULT_SERVICE).onto(rediscluster.RedisCluster)
     else:
         _w("rediscluster", "StrictRedisCluster.execute_command", traced_execute_command)
         _w("rediscluster", "StrictRedisCluster.pipeline", traced_pipeline)
         _w("rediscluster", "StrictClusterPipeline.execute", traced_execute_pipeline)
-        Pin(service=redisx.DEFAULT_SERVICE, app=redisx.APP).onto(rediscluster.StrictRedisCluster)
+        Pin(service=redisx.DEFAULT_SERVICE).onto(rediscluster.StrictRedisCluster)
 
 
 def unpatch():

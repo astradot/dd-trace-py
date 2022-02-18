@@ -6,11 +6,12 @@ import pytest
 import ddtrace
 from ddtrace import Pin
 from ddtrace.constants import ANALYTICS_SAMPLE_RATE_KEY
-from ddtrace.contrib.sqlite3 import connection_factory
+from ddtrace.constants import ERROR_MSG
+from ddtrace.constants import ERROR_STACK
+from ddtrace.constants import ERROR_TYPE
 from ddtrace.contrib.sqlite3.patch import TracedSQLiteCursor
 from ddtrace.contrib.sqlite3.patch import patch
 from ddtrace.contrib.sqlite3.patch import unpatch
-from ddtrace.ext import errors
 from tests.opentracer.utils import init_tracer
 from tests.utils import TracerTestCase
 from tests.utils import assert_is_measured
@@ -25,17 +26,6 @@ class TestSQLite(TracerTestCase):
     def tearDown(self):
         unpatch()
         super(TestSQLite, self).tearDown()
-
-    def test_backwards_compat(self):
-        # a small test to ensure that if the previous interface is used
-        # things still work
-        factory = connection_factory(self.tracer, service="my_db_service")
-        conn = sqlite3.connect(":memory:", factory=factory)
-        q = "select * from sqlite_master"
-        cursor = conn.execute(q)
-        self.assertIsInstance(cursor, TracedSQLiteCursor)
-        assert not cursor.fetchall()
-        assert not self.spans
 
     def test_service_info(self):
         backup_tracer = ddtrace.tracer
@@ -83,9 +73,9 @@ class TestSQLite(TracerTestCase):
             root = self.get_root_span()
             assert_is_measured(root)
             self.assertIsNone(root.get_tag("sql.query"))
-            self.assertIsNotNone(root.get_tag(errors.ERROR_STACK))
-            self.assertIn("OperationalError", root.get_tag(errors.ERROR_TYPE))
-            self.assertIn("no such table", root.get_tag(errors.ERROR_MSG))
+            self.assertIsNotNone(root.get_tag(ERROR_STACK))
+            self.assertIn("OperationalError", root.get_tag(ERROR_TYPE))
+            self.assertIn("no such table", root.get_tag(ERROR_MSG))
             self.reset()
 
     def test_sqlite_fetchall_is_traced(self):

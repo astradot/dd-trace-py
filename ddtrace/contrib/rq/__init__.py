@@ -83,9 +83,9 @@ from ddtrace import config
 
 from .. import trace_utils
 from ...ext import SpanTypes
+from ...internal.utils import get_argument_value
+from ...internal.utils.formats import asbool
 from ...propagation.http import HTTPPropagator
-from ...utils import get_argument_value
-from ...utils.formats import asbool
 
 
 __all__ = [
@@ -177,7 +177,7 @@ def traced_perform_job(rq, pin, func, instance, args, kwargs):
     finally:
         # Force flush to agent since the process `os.exit()`s
         # immediately after this method returns
-        pin.tracer.writer.flush_queue()
+        pin.tracer.flush()
 
 
 @trace_utils.with_traced_module
